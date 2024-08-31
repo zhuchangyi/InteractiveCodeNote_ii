@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com; worker-src 'self' https://cdnjs.cloudflare.com;">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Go Code Editor</title>
+    <style>
+        body, html {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+        .editor-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 100px;
+            max-height: calc(100% - 120px); /* Adjust based on other elements */
+            transition: flex 0.3s ease;
+        }
+        #editor {
+            flex: 1;
+            border: 1px solid #333;
+            font-size: 14px;
+            overflow: hidden;
+        }
+        .button-container {
+            padding: 10px 0;
+        }
+        .button-container button {
+            padding: 0.5em 1em;
+            margin-right: 0.5em;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+        }
+        .run-button {
+            background-color: #0077ff;
+            color: white;
+        }
+        .reset-button {
+            background-color: #f0f0f0;
+            color: #333;
+        }
+        .save-button {
+            background-color: #4caf50;
+            color: white;
+        }
+        .output-container {
+            height: 150px; /* Reduced initial height */
+            min-height: 70px;
+            display: flex;
+            flex-direction: column;
+            transition: height 0.3s ease;
+        }
+        #output-container {
+            flex: 1;
+            background-color: #000000;
+            border: 1px solid #333;
+            border-radius: 2px;
+            color: #ffffff;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .output-header {
+            background-color: #1a1a1a;
+            padding: 0.5em;
+            font-weight: bold;
+            color: #ffffff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #output {
+            flex: 1;
+            padding: 1em;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 14px;
+            color: #ffffff;
+        }
+        #execution-time {
+            font-size: 0.9em;
+            color: #888;
+        }
+        #toggle-output {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 1.2em;
+        }
+        #versions {
+            margin-top: 10px;
+        }
+        .version-item {
+            cursor: pointer;
+            padding: 5px;
+            border: 1px solid #ddd;
+            margin-bottom: 5px;
+        }
+        .version-item:hover {
+            background-color: #e0e0e0;
+        }
+        #toggle-versions {
+            background: none;
+            border: none;
+            color: #0077ff;
+            cursor: pointer;
+            font-size: 1em;
+            padding: 5px;
+            display: flex;
+            align-items: center;
+        }
+        #toggle-versions span {
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="editor-container">
+            <div id="editor"></div>
+        </div>
+        <div class="button-container">
+            <button id="run" class="run-button">Run</button>
+            <button id="reset" class="reset-button">Reset</button>
+            <button id="save" class="save-button">Save</button>
+        </div>
+        <div class="output-container">
+            <div id="output-container">
+                <div class="output-header">
+                    <span>Output</span>
+                    <span id="execution-time"></span>
+                    <button id="toggle-output">▲</button>
+                </div>
+                <pre id="output"></pre>
+            </div>
+        </div>
+        <div id="versions">
+            <button id="toggle-versions">Versions<span>▼</span></button>
+            <div id="version-list" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.31.1/min/vs/loader.js"></script>
+    <script>
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.31.1/min/vs' }});
+        require(['vs/editor/editor.main'], function() {
+            var editor = monaco.editor.create(document.getElementById('editor'), {
+                value: '',
+                language: 'go',
+                theme: 'vs-dark',
+                fontSize: 14,
+                lineHeight: 20,
+                automaticLayout: true,
+                scrollBeyondLastLine: false,
+                minimap: { enabled: false }
+            });
+
+            // 获取URL中的noteId参数
+            const urlParams = new URLSearchParams(window.location.search);
+            const noteId = urlParams.get('noteId') || 'example-note-id'; // 默认值为'example-note-id'
+
+            let versionsData = [];
+
+            function loadVersions() {
+                fetch('https://orjp.leatherpigeon.shop:8443/getCode', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ noteId: noteId }) // 传递noteId
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        editor.setValue(data.code);
+                        versionsData = data.versions || [];
+                        renderVersions();
+                    } else {
+                        console.log('No saved code found:', data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading versions:', error);
+                });
+            }
+
+            function renderVersions() {
+                let versionsContainer = document.getElementById('version-list');
+                versionsContainer.innerHTML = '';
+                let versionsToShow = isVersionsExpanded ? versionsData : versionsData.slice(0, 3);
+                versionsToShow.forEach((version, index) => {
+                    let versionItem = document.createElement('div');
+                    versionItem.className = 'version-item';
+                    versionItem.textContent = `Version ${index + 1} - ${new Date(version.timestamp).toLocaleString()}`;
+                    versionItem.onclick = () => editor.setValue(version.content);
+                    versionsContainer.appendChild(versionItem);
+                });
+                document.getElementById('toggle-versions').innerHTML = `Versions<span>${isVersionsExpanded ? '▲' : '▼'}</span>`;
+            }
+
+            function adjustLayout() {
+                var containerHeight = document.querySelector('.container').offsetHeight;
+                var buttonContainerHeight = document.querySelector('.button-container').offsetHeight;
+                var outputContainerHeight = document.querySelector('.output-container').offsetHeight;
+                var editorHeight = containerHeight - buttonContainerHeight - outputContainerHeight - 20; // 20px for padding
+                document.querySelector('.editor-container').style.height = editorHeight + 'px';
+                editor.layout();
+            }
+
+            window.addEventListener('resize', adjustLayout);
+            adjustLayout(); // Initial adjustment
+
+            document.getElementById('run').onclick = function() {
+                var startTime = performance.now();
+                var code = editor.getValue();
+                fetch('https://orjp.leatherpigeon.shop:8443/run', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ code: code })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    var endTime = performance.now();
+                    document.getElementById('output').textContent = data.output;
+                    document.getElementById('execution-time').textContent = `${((endTime - startTime) / 1000).toFixed(2)}s`;
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('output').textContent = 'Error: ' + error;
+                });
+            };
+
+            document.getElementById('reset').onclick = function() {
+                editor.setValue('package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("Hello, World!")\n}');
+                adjustLayout();
+            };
+
+            document.getElementById('save').onclick = function() {
+                var code = editor.getValue();
+                fetch('https://api.ipify.org?format=json') // 获取用户IP地址
+                .then(response => response.json())
+                .then(data => {
+                    var ipAddress = data.ip;
+                    fetch('https://orjp.leatherpigeon.shop:8443/saveCode', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ code: code, noteId: noteId, ip: ipAddress }) // 传递noteId和IP地址
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            console.log('Code saved successfully');
+                            loadVersions(); // 保存成功后重新加载版本列表
+                        } else {
+                            console.error('Failed to save code:', data.message);
+                            document.getElementById('output').textContent = 'Error: ' + data.message; // 显示错误消息
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error saving code:', error);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching IP address:', error);
+                });
+            };
+
+            var outputContainer = document.querySelector('.output-container');
+            var toggleButton = document.getElementById('toggle-output');
+            var isOutputExpanded = true;
+            var isVersionsExpanded = false;
+
+            toggleButton.onclick = function() {
+                isOutputExpanded = !isOutputExpanded;
+                if (isOutputExpanded) {
+                    outputContainer.style.height = '200px';
+                    toggleButton.textContent = '▲';
+                } else {
+                    outputContainer.style.height = '100px';
+                    toggleButton.textContent = '▼';
+                }
+                adjustLayout();
+            };
+
+            var toggleVersionsButton = document.getElementById('toggle-versions');
+            toggleVersionsButton.onclick = function() {
+                isVersionsExpanded = !isVersionsExpanded;
+                document.getElementById('version-list').style.display = isVersionsExpanded ? 'none' : 'block';
+                renderVersions();
+            };
+
+            loadVersions(); 
+        });
+    </script>
+</body>
+</html>

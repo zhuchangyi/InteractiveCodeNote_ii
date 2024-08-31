@@ -1,0 +1,21 @@
+container_pool:
+  small_containers:
+    count: 4
+    image: "golang-with-timeout:1.22.5-alpine"
+    cpu_quota: 50000   
+    memory: 3      
+    mount_source: "/home/interactcode_note_ii/tmp_code"
+    mount_target: "/tmp_code" 
+    queue_size: 10
+  big_containers:
+    count: 2
+    image: "golang-with-timeout:1.22.5-alpine"   # 换一个image
+    cpu_quota: 150000  
+    memory: 5       
+    mount_source: "/home/interactcode_note_ii/tmp_code"
+    mount_target: "/tmp_code"  
+    queue_size: 10
+redis:
+  address: "localhost:6379"
+  password: "yourpassword"
+  db: 0
